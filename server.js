@@ -3,7 +3,12 @@ const multer = require("multer")
 const crypto = require("node:crypto")
 
 const { connectToDb } = require('./lib/mongo')
-const { getImageInfoById, saveImageInfo } = require('./models/image')
+const {
+    getImageInfoById,
+    saveImageInfo,
+    saveImageFile,
+    getImageDownloadStreamByFilename
+} = require('./models/image')
 
 const app = express()
 const port = process.env.PORT || 8000
@@ -30,7 +35,22 @@ const upload = multer({
     }
 })
 
-app.use("/media/images", express.static("uploads/"))
+// app.use("/media/images", express.static("uploads/"))
+
+app.get("/media/images/:filename", function (req, res, next) {
+    getImageDownloadStreamByFilename(req.params.filename)
+        .on("error", function (err) {
+            if (err.code === "ENOENT") {
+                next()
+            } else {
+                next(err)
+            }
+        })
+        .on("file", function (file) {
+            res.status(200).type(file.metadata.contentType)
+        })
+        .pipe(res)
+})
 
 app.get('/', (req, res, next) => {
     res.status(200).sendFile(__dirname + '/index.html')
@@ -46,7 +66,9 @@ app.post("/images", upload.single("image"), async function (req, res, next) {
             path: req.file.path,
             userId: req.body.userId
         }
-        const id = await saveImageInfo(image)
+        // const id = await saveImageInfo(image)
+        const id = await saveImageFile(image)
+        // Delete image from uploads/
         res.status(200).send({
             id: id
         })
@@ -61,9 +83,16 @@ app.get('/images/:id', async (req, res, next) => {
     try {
         const image = await getImageInfoById(req.params.id)
         if (image) {
-            delete image.path
-            image.url = `/media/images/${image.filename}`
-            res.status(200).send(image)
+            // delete image.path
+            const resBody = {
+                _id: image._id,
+                filename: image.filename,
+                contentType: image.metadata.contentType,
+                userId: image.metadata.userId,
+                url: `/media/images/${image.filename}`
+            }
+            // image.url = `/media/images/${image.filename}`
+            res.status(200).send(resBody)
         } else {
             next()
         }
